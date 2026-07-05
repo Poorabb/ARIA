@@ -1,0 +1,15 @@
+langgraph>=0.2.0
+langchain>=0.3.0
+langchain-google-genai>=2.0.0
+langchain-core>=0.3.0
+sounddevice>=0.4.6
+numpy>=1.26.0
+faster-whisper>=1.0.0
+pyttsx3>=2.90
+pycaw>=20240210
+comtypes>=1.4.0
+pystray>=0.19.5
+Pillow>=10.0.0
+python-dotenv>=1.0.0
+pywin32>=306
+psutil>=5.9.0
