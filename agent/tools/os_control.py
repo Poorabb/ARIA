@@ -23,7 +23,8 @@ APP_MAP = {
     "file explorer": "explorer",
     "explorer": "explorer",
     "task manager": "taskmgr",
-    "calculator":"calc"
+    "calculator":"calc",
+    "spotify": "start spotify",
 }
 
 
