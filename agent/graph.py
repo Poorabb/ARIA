@@ -7,6 +7,8 @@ from langgraph.prebuilt import create_react_agent
 
 from config import GEMINI_API_KEY
 from agent.tools.os_control import ALL_OS_TOOLS
+from agent.tools.media_control import ALL_MEDIA_TOOLS 
+from agent.tools.spotify_tool import ALL_SPOTIFY_TOOLS 
 
 SYSTEM_PROMPT = """You are Aria, a helpful voice assistant running on the user's Windows PC.
 You control the OS and (soon) email/calendar via tools. Keep spoken replies SHORT (1-2 sentences) -
@@ -14,7 +16,7 @@ they will be read aloud through text-to-speech, so no markdown, no lists, no lon
 If a command is ambiguous, make a reasonable assumption and act rather than asking for clarification,
 unless it's something risky like shutting down or closing something important."""
 
-TOOLS = [*ALL_OS_TOOLS]  # email_tool / calendar_tool get appended here in later phases
+TOOLS = [*ALL_OS_TOOLS, *ALL_MEDIA_TOOLS, *ALL_SPOTIFY_TOOLS]
 
 _llm = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite",
