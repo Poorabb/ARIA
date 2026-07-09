@@ -2,8 +2,8 @@
 Spotify search + remote playback control via the Spotify Web API.
 Requires a Spotify Premium account (playback control endpoints are Premium-only).
 """
-import time
 import difflib
+import time
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
@@ -43,6 +43,23 @@ def _wait_for_active_device(sp, retries: int = 6, delay: float = 1.5):
     return None
 
 
+def _pick_best_track(song_name: str, tracks: list):
+    """
+    Spotify's search API ranks by its own relevance signals (popularity, etc.),
+    not textual closeness - so the top hit for a misremembered/approximate title
+    can be a completely different song. Re-rank candidates by how closely the
+    track title actually matches what the user said, and flag it when even the
+    best match isn't very close (so we can be upfront instead of silently
+    playing the wrong song).
+    """
+    best_track, best_score = None, -1.0
+    for track in tracks:
+        score = difflib.SequenceMatcher(None, song_name.lower(), track["name"].lower()).ratio()
+        if score > best_score:
+            best_track, best_score = track, score
+    return best_track, best_score
+
+
 @tool
 def play_song_on_spotify(song_name: str) -> str:
     """Searches for a song by name and plays it on Spotify. Opens the Spotify desktop app if needed."""
@@ -51,12 +68,12 @@ def play_song_on_spotify(song_name: str) -> str:
     except Exception as e:
         return f"Spotify isn't set up yet: {e}"
 
-    results = sp.search(q=song_name, type="track", limit=1)
+    results = sp.search(q=song_name, type="track", limit=5)
     tracks = results.get("tracks", {}).get("items", [])
     if not tracks:
         return f"Couldn't find a song called {song_name} on Spotify."
 
-    track = tracks[0]
+    track, score = _pick_best_track(song_name, tracks)
     track_uri = track["uri"]
     track_title = track["name"]
     artist = track["artists"][0]["name"]
@@ -72,6 +89,9 @@ def play_song_on_spotify(song_name: str) -> str:
 
     try:
         sp.start_playback(device_id=device_id, uris=[track_uri])
+        if score < 0.5:
+            # Weak match - be upfront that this probably isn't the exact song
+            return f"Couldn't find an exact match for {song_name}. Playing the closest match: {track_title} by {artist}."
         return f"Playing {track_title} by {artist} on Spotify."
     except spotipy.exceptions.SpotifyException as e:
         if e.http_status == 403:

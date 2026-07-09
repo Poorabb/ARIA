@@ -15,6 +15,7 @@ SAMPLE_RATE = 16000
 CHUNK_DURATION = 0.1  # seconds per audio chunk we inspect
 SILENCE_DURATION = 1.0  # seconds of quiet that mark end of a phrase
 MAX_DURATION = 15  # hard cap on a single phrase, seconds
+MIN_SPEECH_CHUNKS = 3  # ~0.3s minimum - discard shorter blips as noise, not speech
 
 # Words Whisper commonly mishears against real dictionary words (e.g. "spotify" -> "fortify").
 # Two things use this list:
@@ -30,6 +31,14 @@ _INITIAL_PROMPT = "Aria, " + ", ".join(sorted(set(DOMAIN_VOCAB)))
 print(f"[STT] Loading Whisper model '{WHISPER_MODEL_SIZE}' (first run downloads it, be patient)...")
 _model = WhisperModel(WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
 print("[STT] Whisper model ready.")
+
+# Warm up the model (and the VAD filter it uses internally) with a throwaway
+# call now, at startup - otherwise the first real transcription pays this
+# one-time cost mid-conversation, which shows up as a random long delay.
+print("[STT] Warming up model...")
+_dummy_audio = np.zeros(SAMPLE_RATE, dtype=np.float32)  # 1 second of silence
+list(_model.transcribe(_dummy_audio, language="en", vad_filter=True)[0])
+print("[STT] Warm-up complete.")
 
 _ambient_rms = 300.0  # overwritten by calibrate_microphone()
 
@@ -101,8 +110,15 @@ def listen_and_transcribe() -> str:
                 buffer.append(chunk)
                 if silence_run >= silence_chunks_needed:
                     break
+            # else: still waiting for speech to start, keep looping without buffering
 
     if not buffer or last_speech_idx == -1:
+        return ""
+
+    # Discard noise blips (cough, click, chair creak) that briefly cross the
+    # threshold but aren't real speech - transcribing these is what feeds Whisper
+    # near-silent audio, which is exactly what triggers repetition hallucinations.
+    if last_speech_idx < MIN_SPEECH_CHUNKS:
         return ""
 
     # Trim the long trailing silence tail (only needed for end-of-speech detection,
@@ -117,7 +133,7 @@ def listen_and_transcribe() -> str:
         audio,
         language="en",
         initial_prompt=_INITIAL_PROMPT,
-        vad_filter=True,              # skips any remaining non-speech segments
+        vad_filter=True,                   # drops any remaining non-speech segments
         condition_on_previous_text=False,  # prevents the repetition-loop hallucination
     )
     text = " ".join(segment.text.strip() for segment in segments).strip().lower()
