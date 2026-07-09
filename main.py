@@ -49,7 +49,7 @@ def extract_command(transcript: str) -> str:
 def voice_loop():
     calibrate_microphone()
     set_status("online", "idle")
-    speak("Hi Karan. I'm listening.")
+    speak("Welcome back Poorab. What can i get started for you?")
 
     while True:
         set_status("listening...", "listening")

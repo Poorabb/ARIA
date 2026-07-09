@@ -239,7 +239,7 @@ def start_overlay_blocking():
 
     overlay_instance = OrbWindow()
 
-    overlay_instance.move(1400, 150)
+    overlay_instance.move(10, 10)
 
     overlay_instance.show()
 
