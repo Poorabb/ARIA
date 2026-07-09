@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import subprocess
+import time
 import webbrowser
 import psutil
 
@@ -17,15 +18,26 @@ from agent.tools.app_index import find_app_path
 # Only keep entries here that need special handling:
 # - launch arguments (like Valorant)
 # - a friendlier alias than the actual exe/shortcut/registry name
-# - anything the dynamic index (registry + Start Menu scan) doesn't resolve correctly
+# - a URI scheme handler (like ms-settings:) that the dynamic scanner can't discover
+# - anything the dynamic index (registry + Start Menu scan) doesn't resolve correctly,
+#   kept here so it launches instantly instead of going through the slower fallback
 APP_MAP = {
     "settings": "start ms-settings:",
     "file explorer": "explorer",
     "explorer": "explorer",
     "task manager": "taskmgr",
-    "calculator":"calc",
+    "calculator": "calc",
     "spotify": "start spotify",
-    "vc": "start discord"
+    "vc": "start discord",
+    "whatsapp": "start whatsapp",
+}
+
+# Never allow close_application to touch these - either core Windows processes
+# whose death can crash/hang the OS, or Aria's own process.
+PROTECTED_PROCESSES = {
+    "explorer", "csrss", "wininit", "winlogon", "services", "lsass",
+    "svchost", "dwm", "smss", "system", "registry",
+    "python", "pythonw",  # Aria itself runs on these - don't let it self-terminate
 }
 
 
@@ -42,16 +54,17 @@ def _split_exe_and_args(command: str):
     if match:
         exe_path = match.group(1).strip().strip('"')
         args_str = match.group(2).strip()
-        args = shlex.split(args_str) if args_str else []
+        args = shlex.split(args_str, posix=False) if args_str else []
         return exe_path, args
     return command, []
 
 
-def _resolve_command(app_name: str) -> str:
-    """Resolves a spoken app name to a launchable command/path, in priority order:
+def _resolve_command(app_name: str):
+    """Resolves a spoken app name to a launchable command, in priority order:
     1. Manual APP_MAP overrides (exact, then partial match)
     2. Dynamically discovered app index (registry + Start Menu scan)
-    3. Raw normalized name, as a last-resort shell command
+    Returns (command, found) - found=False means nothing matched and the caller
+    should fall back to raw-name + 'start' attempts with process verification.
     """
     key = _normalize(app_name)
 
@@ -61,30 +74,83 @@ def _resolve_command(app_name: str) -> str:
             if map_key in key or key in map_key:
                 command = map_cmd
                 break
+    if command is not None:
+        return command, True
 
-    if command is None:
-        command = find_app_path(key)
+    command = find_app_path(key)
+    if command is not None:
+        return command, True
 
-    if command is None:
-        command = key
-
-    return command
+    return key, False
 
 
-@tool
-def open_application(app_name: str) -> str:
-    """Opens a desktop application by name, e.g. 'chrome', 'notepad', 'vs code', 'calculator', 'valorant'."""
-    command = _resolve_command(app_name)
-
+def _launch(command: str):
+    """Fires off a launch attempt. Never raises on a bad command - shell=True
+    'succeeds' (spawns cmd.exe) even when the underlying command is invalid,
+    which is why success has to be verified separately via process checking."""
     try:
         if "\\" in command or ".exe" in command.lower():
             exe_path, args = _split_exe_and_args(command)
             subprocess.Popen([exe_path, *args])
         else:
             subprocess.Popen(command, shell=True)
+    except Exception:
+        pass
+
+
+def _snapshot_process_names() -> set:
+    names = set()
+    for proc in psutil.process_iter(["name"]):
+        try:
+            name = proc.info["name"] or ""
+            names.add(_normalize(os.path.splitext(name)[0]))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return names
+
+
+def _new_matching_process_appeared(key: str, before: set, timeout: float = 2.0, poll: float = 0.3) -> bool:
+    """Polls for up to `timeout` seconds for a NEW process (not in `before`) whose
+    name matches `key`. This is how we detect launch success, since shell=True
+    'succeeds' even when the underlying command is invalid."""
+    elapsed = 0.0
+    while elapsed < timeout:
+        time.sleep(poll)
+        elapsed += poll
+        new_names = _snapshot_process_names() - before
+        if any(key in name or name in key for name in new_names if name):
+            return True
+    return False
+
+
+@tool
+def open_application(app_name: str) -> str:
+    """Opens a desktop application by name, e.g. 'chrome', 'notepad', 'vs code', 'calculator', 'valorant'."""
+    command, found = _resolve_command(app_name)
+
+    if found:
+        # Resolved via APP_MAP or the dynamic registry/Start Menu index - trust it,
+        # no need to slow things down with process-checking.
+        _launch(command)
         return f"Opening {app_name}."
-    except Exception as e:
-        return f"Couldn't open {app_name}: {e}"
+
+    # Nothing resolved. Try the raw name first, then fall back to Windows' "start"
+    # command - "start" additionally resolves App Paths, URI protocol handlers, and
+    # Store app monikers that our scanner sometimes misses.
+    key = _normalize(app_name)
+    before = _snapshot_process_names()
+
+    _launch(key)
+    if _new_matching_process_appeared(key, before):
+        return f"Opening {app_name}."
+
+    _launch(f'start "" {key}')
+    if _new_matching_process_appeared(key, before, timeout=2.5):
+        return f"Opening {app_name}."
+
+    return (f"I couldn't find an app called '{app_name}'. "
+            f"You may need to add it to APP_MAP in os_control.py.")
+
 
 @tool
 def close_application(app_name: str) -> str:
@@ -136,6 +202,7 @@ def close_application(app_name: str) -> str:
         return f"Closed {app_name} ({', '.join(matched_names)})."
     return f"Couldn't close {app_name} - access denied."
 
+
 @tool
 def lock_computer() -> str:
     """Locks the Windows computer immediately."""
@@ -168,11 +235,12 @@ def set_volume(level: int) -> str:
 
         level = max(0, min(100, int(level)))
         device = AudioUtilities.GetSpeakers()
-        volume = device.EndpointVolume  # new pycaw exposes this directly, no Activate() needed
+        volume = device.EndpointVolume  # newer pycaw exposes this directly, no Activate() needed
         volume.SetMasterVolumeLevelScalar(level / 100, None)
         return f"Volume set to {level}%."
     except Exception as e:
         return f"Couldn't change volume: {type(e).__name__}: {e}"
+
 
 @tool
 def search_web(query: str) -> str:
