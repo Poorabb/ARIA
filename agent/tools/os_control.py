@@ -170,19 +170,15 @@ def cancel_shutdown() -> str:
 def set_volume(level: int) -> str:
     """Sets the system volume to a percentage from 0 to 100."""
     try:
-        from ctypes import cast, POINTER
-        from comtypes import CLSCTX_ALL
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        from pycaw.pycaw import AudioUtilities
 
         level = max(0, min(100, int(level)))
-        devices = AudioUtilities.GetSpeakers()
-        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        volume = cast(interface, POINTER(IAudioEndpointVolume))
+        device = AudioUtilities.GetSpeakers()
+        volume = device.EndpointVolume  # new pycaw exposes this directly, no Activate() needed
         volume.SetMasterVolumeLevelScalar(level / 100, None)
         return f"Volume set to {level}%."
     except Exception as e:
-        return f"Couldn't change volume: {e}"
-
+        return f"Couldn't change volume: {type(e).__name__}: {e}"
 
 @tool
 def search_web(query: str) -> str:
