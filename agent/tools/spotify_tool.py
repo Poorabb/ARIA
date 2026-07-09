@@ -3,6 +3,7 @@ Spotify search + remote playback control via the Spotify Web API.
 Requires a Spotify Premium account (playback control endpoints are Premium-only).
 """
 import time
+import difflib
 
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth

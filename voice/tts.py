@@ -16,7 +16,7 @@ def _find_female_voice_id(engine):
         return _cached_voice_id
 
     voices = engine.getProperty("voices")
-    female_hints = ["hazel","female","susan", "samantha", "aria","zira"]
+    female_hints = ["zira","hazel","female","susan", "samantha", "aria"]
 
     for voice in voices:
         name = (voice.name or "").lower()

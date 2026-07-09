@@ -15,12 +15,22 @@ from agent.graph import run_command
 from gui.overlay import start_overlay_blocking, set_status
 
 
+_WAKE_PATTERNS = [
+    (alias, re.compile(rf"\b{re.escape(alias)}\b")) for alias in WAKE_WORD_ALIASES
+]
+
+
 def find_wake_word(transcript: str):
-    for alias in WAKE_WORD_ALIASES:
-        idx = transcript.find(alias)
-        if idx != -1:
-            return alias, idx
-    return None, -1
+    """
+    Finds the EARLIEST-occurring wake word alias in the transcript (word-boundary
+    matched, not substring), not just the first alias in WAKE_WORD_ALIASES to match.
+    """
+    best_alias, best_idx = None, -1
+    for alias, pattern in _WAKE_PATTERNS:
+        match = pattern.search(transcript)
+        if match and (best_idx == -1 or match.start() < best_idx):
+            best_alias, best_idx = alias, match.start()
+    return best_alias, best_idx
 
 
 def _clean(text: str) -> str:

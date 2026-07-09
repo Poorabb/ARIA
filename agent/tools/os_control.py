@@ -25,6 +25,7 @@ APP_MAP = {
     "task manager": "taskmgr",
     "calculator":"calc",
     "spotify": "start spotify",
+    "vc": "start discord"
 }
 
 
@@ -85,29 +86,52 @@ def open_application(app_name: str) -> str:
     except Exception as e:
         return f"Couldn't open {app_name}: {e}"
 
+PROTECTED_PROCESSES = {
+    "explorer", "csrss", "wininit", "winlogon", "services", "lsass",
+    "svchost", "dwm", "smss", "system", "registry",
+    "python", "pythonw",  # Aria itself runs on these - don't let it self-terminate
+}
 
 @tool
 def close_application(app_name: str) -> str:
     """Force-closes a running application by its name, e.g. 'chrome', 'notepad', 'calculator'."""
     key = _normalize(app_name)
-    matched_pids = []
-    matched_names = set()
+
+    if key in PROTECTED_PROCESSES:
+        return f"I won't close {app_name} - it's a protected system process."
+
+    exact_matches = []
+    fuzzy_matches = []
 
     for proc in psutil.process_iter(["pid", "name"]):
         try:
             proc_name = (proc.info["name"] or "")
             proc_key = _normalize(os.path.splitext(proc_name)[0])
-            if key in proc_key or proc_key in key:
-                matched_pids.append(proc.info["pid"])
-                matched_names.add(proc_name)
+
+            # Hard block regardless of match type - never touch these
+            if proc_key in PROTECTED_PROCESSES:
+                continue
+
+            if proc_key == key:
+                exact_matches.append((proc.info["pid"], proc_name))
+            elif key in proc_key or proc_key in key:
+                fuzzy_matches.append((proc.info["pid"], proc_name))
+
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
 
-    if not matched_pids:
+    # Prefer exact matches. Only fall back to fuzzy if nothing exact was found -
+    # this avoids "chrome" fuzzy-matching five different helper processes when
+    # the real chrome.exe process is right there as an exact match.
+    matched = exact_matches if exact_matches else fuzzy_matches
+
+    if not matched:
         return f"{app_name} doesn't seem to be running."
 
+    matched_names = set()
     killed, failed = 0, 0
-    for pid in matched_pids:
+    for pid, name in matched:
+        matched_names.add(name)
         try:
             psutil.Process(pid).terminate()
             killed += 1
