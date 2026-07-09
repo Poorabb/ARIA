@@ -1,75 +1,253 @@
-"""
-gui/overlay.py - Small always-on-top status overlay for Aria.
-Runs in the main thread; the voice/agent loop runs in a background thread
-and pushes status updates through a thread-safe queue.
-"""
-import queue
-import tkinter as tk
+import sys
+import math
 
-STATUS_COLORS = {
-    "idle": "#3b3b3b",
-    "listening": "#2ecc71",
-    "thinking": "#f1c40f",
-    "speaking": "#3498db",
-    "error": "#e74c3c",
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QPainter, QPen, QBrush
+from PyQt6.QtWidgets import (
+    QApplication,
+    QWidget,
+    QSystemTrayIcon,
+    QMenu,
+)
+
+STATE_COLORS = {
+    "idle": QColor(170, 175, 185),
+    "listening": QColor(120, 170, 200),
+    "thinking": QColor(180, 180, 180),
+    "speaking": QColor(180, 100, 100),
+    "error": QColor(180, 100, 100),
 }
 
-status_queue = queue.Queue()
+overlay_instance = None
 
 
-def set_status(text: str, state: str = "idle"):
-    """Called from the worker thread to update the overlay."""
-    status_queue.put((text, state))
+class OrbWindow(QWidget):
 
-
-class AriaOverlay:
     def __init__(self):
-        self.root = tk.Tk()
-        self.root.title("Aria")
-        self.root.geometry("220x70+40+40")
-        self.root.overrideredirect(True)  # no title bar
-        self.root.attributes("-topmost", True)
-        self.root.configure(bg="#1e1e1e")
+        super().__init__()
 
-        self.canvas = tk.Canvas(self.root, width=220, height=70, bg="#1e1e1e", highlightthickness=0)
-        self.canvas.pack()
+        self.state = "idle"
+        self.t = 0
 
-        self.dot = self.canvas.create_oval(15, 25, 35, 45, fill=STATUS_COLORS["idle"], outline="")
-        self.label = self.canvas.create_text(
-            50, 35, anchor="w", text="Aria - idle", fill="white", font=("Segoe UI", 11)
+        self.resize(100, 100)
+
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
         )
 
-        # allow dragging the window since it has no title bar
-        self.canvas.bind("<ButtonPress-1>", self._start_move)
-        self.canvas.bind("<B1-Motion>", self._do_move)
+        self.setAttribute(
+            Qt.WidgetAttribute.WA_TranslucentBackground
+        )
 
-        self._poll_queue()
+        self.drag_pos = None
 
-    def _start_move(self, event):
-        self._drag_x = event.x
-        self._drag_y = event.y
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.animate)
+        self.timer.start(16)
 
-    def _do_move(self, event):
-        x = self.root.winfo_x() + (event.x - self._drag_x)
-        y = self.root.winfo_y() + (event.y - self._drag_y)
-        self.root.geometry(f"+{x}+{y}")
+        self.setup_tray()
 
-    def _poll_queue(self):
-        try:
-            while True:
-                text, state = status_queue.get_nowait()
-                color = STATUS_COLORS.get(state, STATUS_COLORS["idle"])
-                self.canvas.itemconfig(self.dot, fill=color)
-                self.canvas.itemconfig(self.label, text=f"Aria - {text}")
-        except queue.Empty:
-            pass
-        self.root.after(100, self._poll_queue)
+    def setup_tray(self):
 
-    def run(self):
-        self.root.mainloop()
+        self.tray = QSystemTrayIcon(self)
+
+        self.tray.setIcon(
+            self.style().standardIcon(
+                self.style().StandardPixmap.SP_ComputerIcon
+            )
+        )
+
+        menu = QMenu()
+
+        show_action = menu.addAction("Show Aria")
+        hide_action = menu.addAction("Hide Aria")
+        quit_action = menu.addAction("Quit")
+
+        show_action.triggered.connect(self.show)
+        hide_action.triggered.connect(self.hide)
+        quit_action.triggered.connect(QApplication.quit)
+
+        self.tray.setContextMenu(menu)
+
+        self.tray.setToolTip("Aria")
+
+        self.tray.activated.connect(
+            self.on_tray_click
+        )
+
+        self.tray.show()
+
+    def on_tray_click(self, reason):
+
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show()
+                self.activateWindow()
+
+    def set_state(self, state):
+        self.state = state
+
+    def animate(self):
+        self.t += 0.025
+        self.update()
+
+    def paintEvent(self, event):
+
+        painter = QPainter(self)
+        painter.setRenderHint(
+            QPainter.RenderHint.Antialiasing
+        )
+
+        cx = self.width() / 2
+        cy = self.height() / 2
+
+        color = STATE_COLORS.get(
+            self.state,
+            STATE_COLORS["idle"]
+        )
+
+        pulse_speed = 1
+
+        if self.state == "listening":
+            pulse_speed = 2
+
+        elif self.state == "speaking":
+            pulse_speed = 3
+
+        radius = 10 + math.sin(
+            self.t * pulse_speed
+        ) * 2
+
+        if self.state == "idle":
+            radius = 10 + math.sin(self.t) * 0.8
+
+        for i in range(6):
+
+            glow_radius = radius + i * 7
+
+            alpha = max(
+                0,
+                25 - i * 2
+            )
+
+            glow = QColor(color)
+            glow.setAlpha(alpha)
+
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(glow))
+
+            painter.drawEllipse(
+                int(cx - glow_radius),
+                int(cy - glow_radius),
+                int(glow_radius * 2),
+                int(glow_radius * 2)
+            )
+
+        painter.setBrush(QBrush(color))
+        painter.setPen(Qt.PenStyle.NoPen)
+
+        painter.drawEllipse(
+            int(cx - radius),
+            int(cy - radius),
+            int(radius * 2),
+            int(radius * 2)
+        )
+
+        painter.setBrush(
+            QBrush(QColor(255, 255, 255, 80))
+        )
+
+        painter.drawEllipse(
+            int(cx - radius * 0.5),
+            int(cy - radius * 0.5),
+            int(radius),
+            int(radius)
+        )
+
+        if self.state == "thinking":
+
+            ring_r = radius + 30
+
+            angle = self.t * 2
+
+            x = cx + math.cos(angle) * ring_r
+            y = cy + math.sin(angle) * ring_r
+
+            painter.setBrush(QBrush(color))
+
+            painter.drawEllipse(
+                int(x - 8),
+                int(y - 8),
+                16,
+                16
+            )
+
+        if self.state == "listening":
+
+            ripple = (
+                self.t * 40
+            ) % 120
+
+            pen = QPen(color)
+            pen.setWidth(2)
+
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+
+            painter.drawEllipse(
+                int(cx - ripple),
+                int(cy - ripple),
+                int(ripple * 2),
+                int(ripple * 2)
+            )
+
+    def mousePressEvent(self, event):
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_pos = (
+                event.globalPosition().toPoint()
+                - self.frameGeometry().topLeft()
+            )
+
+    def mouseMoveEvent(self, event):
+
+        if self.drag_pos:
+            self.move(
+                event.globalPosition().toPoint()
+                - self.drag_pos
+            )
+
+    def mouseReleaseEvent(self, event):
+        self.drag_pos = None
+
+    def mouseDoubleClickEvent(self, event):
+        self.hide()
+
+
+def set_status(text, state="idle"):
+    global overlay_instance
+
+    if overlay_instance:
+        overlay_instance.set_state(state)
 
 
 def start_overlay_blocking():
-    """Call this from the MAIN thread. Blocks forever running the tkinter loop."""
-    overlay = AriaOverlay()
-    overlay.run()
+
+    global overlay_instance
+
+    app = QApplication(sys.argv)
+
+    app.setQuitOnLastWindowClosed(False)
+
+    overlay_instance = OrbWindow()
+
+    overlay_instance.move(1400, 150)
+
+    overlay_instance.show()
+
+    app.exec()
