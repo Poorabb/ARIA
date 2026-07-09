@@ -86,12 +86,6 @@ def open_application(app_name: str) -> str:
     except Exception as e:
         return f"Couldn't open {app_name}: {e}"
 
-PROTECTED_PROCESSES = {
-    "explorer", "csrss", "wininit", "winlogon", "services", "lsass",
-    "svchost", "dwm", "smss", "system", "registry",
-    "python", "pythonw",  # Aria itself runs on these - don't let it self-terminate
-}
-
 @tool
 def close_application(app_name: str) -> str:
     """Force-closes a running application by its name, e.g. 'chrome', 'notepad', 'calculator'."""
