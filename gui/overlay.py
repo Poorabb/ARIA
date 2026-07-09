@@ -93,7 +93,7 @@ class OrbWindow(QWidget):
         self.state = state
 
     def animate(self):
-        self.t += 0.025
+        self.t += 0.01
         self.update()
 
     def paintEvent(self, event):
@@ -111,19 +111,12 @@ class OrbWindow(QWidget):
             STATE_COLORS["idle"]
         )
 
-        pulse_speed = 1
+        radius = 10
 
         if self.state == "listening":
-            pulse_speed = 2
+            radius = 10 + math.sin(self.t * 3) * 2
 
-        elif self.state == "speaking":
-            pulse_speed = 3
-
-        radius = 10 + math.sin(
-            self.t * pulse_speed
-        ) * 2
-
-        if self.state == "idle":
+        elif self.state == "idle":
             radius = 10 + math.sin(self.t) * 0.8
 
         for i in range(6):
@@ -187,7 +180,7 @@ class OrbWindow(QWidget):
                 16
             )
 
-        if self.state == "listening":
+        if self.state == "speaking":
 
             ripple = (
                 self.t * 40
