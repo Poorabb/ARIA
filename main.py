@@ -49,7 +49,7 @@ def extract_command(transcript: str) -> str:
 def voice_loop():
     calibrate_microphone()
     set_status("online", "idle")
-    speak("Hi Poorab. I'm listening.")
+    speak("Hi Karan. I'm listening.")
 
     while True:
         set_status("listening...", "listening")
@@ -98,11 +98,11 @@ def voice_loop():
 
 
 if __name__ == "__main__":
-    worker = threading.Thread(target=voice_loop, daemon=True)
+    worker = threading.Thread(
+        target=voice_loop,
+        daemon=True
+    )
+
     worker.start()
-    try:
-        start_overlay_blocking()  # must run on main thread
-    except KeyboardInterrupt:
-        print("\n[ARIA] Shutting down. Bye!")
-    finally:
-        os._exit(0)  # force-kill any lingering audio stream threads
+
+    start_overlay_blocking()
