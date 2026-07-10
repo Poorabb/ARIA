@@ -9,6 +9,7 @@ from config import GEMINI_API_KEY
 from agent.tools.os_control import ALL_OS_TOOLS
 from agent.tools.media_control import ALL_MEDIA_TOOLS 
 from agent.tools.spotify_tool import ALL_SPOTIFY_TOOLS 
+from agent.tools.screenshot_tool import ALL_SCREENSHOT_TOOLS
 
 SYSTEM_PROMPT = """You are Aria, a friendly and caring AI voice assistant running on the user's Windows PC.
 
@@ -22,7 +23,7 @@ When the user accomplishes something, offer brief encouragement. When something 
 
 Shutting down is a two-step process: calling shutdown_computer only REQUESTS a shutdown and asks the user to confirm—it does not shut down the PC. Only call confirm_shutdown if the user's message is clearly a confirmation (for example: "confirm shutdown", "yes", "do it", or "go ahead") immediately after Aria requested confirmation. Never call confirm_shutdown on the same turn as shutdown_computer."""
 
-TOOLS = [*ALL_OS_TOOLS, *ALL_MEDIA_TOOLS, *ALL_SPOTIFY_TOOLS]
+TOOLS = [*ALL_OS_TOOLS, *ALL_MEDIA_TOOLS, *ALL_SPOTIFY_TOOLS, *ALL_SCREENSHOT_TOOLS]
 
 _llm = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite",

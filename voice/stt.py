@@ -4,6 +4,8 @@ Speech-to-Text
   with simple energy-based silence detection to know when a phrase ends.
 - Uses faster-whisper (runs locally, no internet/API needed) to transcribe.
 """
+import os
+os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 import difflib
 import numpy as np
 import sounddevice as sd
@@ -131,7 +133,6 @@ def listen_and_transcribe() -> str:
 
     segments, _ = _model.transcribe(
         audio,
-        language="en",
         initial_prompt=_INITIAL_PROMPT,
         vad_filter=True,                   # drops any remaining non-speech segments
         condition_on_previous_text=False,  # prevents the repetition-loop hallucination
