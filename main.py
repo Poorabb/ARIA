@@ -6,11 +6,13 @@ always-on-top status overlay in the main thread (tkinter must run on the main th
 import threading
 import time
 import re
-import os 
+import os
 
 from config import WAKE_WORD, WAKE_WORD_ALIASES
+from agent.state import get_mode
 from voice.stt import calibrate_microphone, listen_and_transcribe
 from voice.tts import speak
+from voice.sound import play_chime
 from agent.graph import run_command
 from gui.overlay import start_overlay_blocking, set_status
 
@@ -46,12 +48,25 @@ def extract_command(transcript: str) -> str:
     return _clean(remainder)
 
 
+def _respond(text: str):
+    """Speaks normally, or just chimes if we're in mute mode."""
+    if get_mode() == "mute":
+        play_chime("action")
+    else:
+        speak(text)
+
+
 def voice_loop():
     calibrate_microphone()
     set_status("online", "idle")
     speak("Welcome back Poorab. What can i get started for you?")
 
     while True:
+        if get_mode() == "dnd":
+            set_status("do not disturb", "dnd")
+            time.sleep(0.5)
+            continue
+
         set_status("listening...", "listening")
         transcript = listen_and_transcribe()
 
@@ -63,10 +78,13 @@ def voice_loop():
         if alias is None:
             continue
 
+        if get_mode() == "mute":
+            play_chime("listen")
+
         command = extract_command(transcript)
 
         if not command:
-            speak("I'm listening.")
+            _respond("I'm listening.")
             time.sleep(0.3)
             set_status("listening...", "listening")
             command = listen_and_transcribe()
@@ -90,11 +108,11 @@ def voice_loop():
         except Exception as e:
             print(f"[ERROR] {e}")
             set_status("error", "error")
-            speak("Sorry, something went wrong with that.")
+            _respond("Sorry, something went wrong with that.")
             continue
 
         set_status("speaking...", "speaking")
-        speak(reply)
+        _respond(reply)
 
 
 if __name__ == "__main__":
@@ -105,4 +123,9 @@ if __name__ == "__main__":
 
     worker.start()
 
-    start_overlay_blocking()
+    try:
+        start_overlay_blocking()
+    except KeyboardInterrupt:
+        print("\n[ARIA] Shutting down. Bye!")
+    finally:
+        os._exit(0)

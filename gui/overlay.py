@@ -10,13 +10,26 @@ from PyQt6.QtWidgets import (
     QMenu,
 )
 
+from agent.state import get_mode, set_mode
+
+# Colors for the four normal-mode sub-states
 STATE_COLORS = {
-    "idle": QColor(170, 175, 185),
-    "listening": QColor(120, 170, 200),
-    "thinking": QColor(180, 180, 180),
-    "speaking": QColor(180, 100, 100),
-    "error": QColor(180, 100, 100),
+    "idle": QColor(255, 255, 255),        # white
+    "listening": QColor(41, 121, 255),    # blue
+    "thinking": QColor(13, 71, 161),      # deep blue (same palette, no purple tint)
+    "speaking": QColor(46, 204, 113),     # green (responding)
+    "error": QColor(231, 76, 60),         # red
 }
+
+# Colors that override everything above when a special mode is active
+MODE_COLORS = {
+    "dnd": QColor(231, 76, 60),           # red
+    "mute": QColor(149, 165, 166),        # grey
+}
+
+_CLICK_DRAG_THRESHOLD = 6  # pixels - below this, a mouse-up counts as a click, not a drag
+_GLOW_RINGS = 6
+_GLOW_STEP = 7
 
 overlay_instance = None
 
@@ -42,6 +55,8 @@ class OrbWindow(QWidget):
         )
 
         self.drag_pos = None
+        self._press_global = None
+        self._moved = 0
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.animate)
@@ -106,22 +121,26 @@ class OrbWindow(QWidget):
         cx = self.width() / 2
         cy = self.height() / 2
 
-        color = STATE_COLORS.get(
-            self.state,
-            STATE_COLORS["idle"]
-        )
+        mode = get_mode()
+        special = mode in MODE_COLORS
+
+        color = MODE_COLORS[mode] if special else STATE_COLORS.get(self.state, STATE_COLORS["idle"])
 
         radius = 10
 
-        if self.state == "listening":
-            radius = 10 + math.sin(self.t * 3) * 2
+        if not special:
+            if self.state == "listening":
+                radius = 10 + math.sin(self.t * 3) * 2
+            elif self.state == "thinking":
+                radius = 10 + math.sin(self.t * 6) * 3  # faster, slightly deeper breathing
+            elif self.state == "idle":
+                radius = 10 + math.sin(self.t) * 0.8
 
-        elif self.state == "idle":
-            radius = 10 + math.sin(self.t) * 0.8
+        outer_glow_radius = radius + (_GLOW_RINGS - 1) * _GLOW_STEP  # the orb's true outer edge
 
-        for i in range(6):
+        for i in range(_GLOW_RINGS):
 
-            glow_radius = radius + i * 7
+            glow_radius = radius + i * _GLOW_STEP
 
             alpha = max(
                 0,
@@ -162,29 +181,11 @@ class OrbWindow(QWidget):
             int(radius)
         )
 
-        if self.state == "thinking":
+        if not special and self.state == "speaking":
 
-            ring_r = radius + 30
-
-            angle = self.t * 2
-
-            x = cx + math.cos(angle) * ring_r
-            y = cy + math.sin(angle) * ring_r
-
-            painter.setBrush(QBrush(color))
-
-            painter.drawEllipse(
-                int(x - 8),
-                int(y - 8),
-                16,
-                16
-            )
-
-        if self.state == "speaking":
-
-            ripple = (
-                self.t * 40
-            ) % 120
+            # Ripple pulses outward from the center but is capped at the orb's own
+            # outer glow edge, instead of shooting out past it indefinitely.
+            ripple = (self.t * 40) % outer_glow_radius
 
             pen = QPen(color)
             pen.setWidth(2)
@@ -206,6 +207,8 @@ class OrbWindow(QWidget):
                 event.globalPosition().toPoint()
                 - self.frameGeometry().topLeft()
             )
+            self._press_global = event.globalPosition().toPoint()
+            self._moved = 0
 
     def mouseMoveEvent(self, event):
 
@@ -214,9 +217,18 @@ class OrbWindow(QWidget):
                 event.globalPosition().toPoint()
                 - self.drag_pos
             )
+            if self._press_global:
+                delta = event.globalPosition().toPoint() - self._press_global
+                self._moved = max(self._moved, abs(delta.x()) + abs(delta.y()))
 
     def mouseReleaseEvent(self, event):
+        # A near-stationary click (not a drag) while in DND resumes normal mode
+        if self._moved < _CLICK_DRAG_THRESHOLD and get_mode() == "dnd":
+            set_mode("normal")
+
         self.drag_pos = None
+        self._press_global = None
+        self._moved = 0
 
     def mouseDoubleClickEvent(self, event):
         self.hide()
