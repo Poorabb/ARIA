@@ -2,7 +2,7 @@ import sys
 import math
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPen, QBrush
+from PyQt6.QtGui import QColor, QPainter, QPen, QBrush, QActionGroup
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
@@ -78,6 +78,28 @@ class OrbWindow(QWidget):
 
         show_action = menu.addAction("Show Aria")
         hide_action = menu.addAction("Hide Aria")
+
+        menu.addSeparator()
+
+        # Mode toggle - exclusive selection (only one checked at a time)
+        mode_group = QActionGroup(self)
+        mode_group.setExclusive(True)
+
+        self.normal_action = menu.addAction("Normal Mode")
+        self.mute_action = menu.addAction("Mute Mode")
+        self.dnd_action = menu.addAction("Do Not Disturb")
+
+        for action, mode_value in (
+            (self.normal_action, "normal"),
+            (self.mute_action, "mute"),
+            (self.dnd_action, "dnd"),
+        ):
+            action.setCheckable(True)
+            mode_group.addAction(action)
+            action.triggered.connect(lambda checked, m=mode_value: set_mode(m))
+
+        menu.addSeparator()
+
         quit_action = menu.addAction("Quit")
 
         show_action.triggered.connect(self.show)
@@ -92,7 +114,17 @@ class OrbWindow(QWidget):
             self.on_tray_click
         )
 
+        # Refresh the checkmarks right before the menu opens, so they reflect
+        # mode changes made via voice command since the menu was last shown
+        menu.aboutToShow.connect(self._sync_mode_menu)
+
         self.tray.show()
+
+    def _sync_mode_menu(self):
+        mode = get_mode()
+        self.normal_action.setChecked(mode == "normal")
+        self.mute_action.setChecked(mode == "mute")
+        self.dnd_action.setChecked(mode == "dnd")
 
     def on_tray_click(self, reason):
 
@@ -256,3 +288,5 @@ def start_overlay_blocking():
     overlay_instance.show()
 
     app.exec()
+
+

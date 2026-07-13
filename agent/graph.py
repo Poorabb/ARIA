@@ -13,7 +13,7 @@ from agent.tools.screenshot_tool import ALL_SCREENSHOT_TOOLS
 from agent.tools.mode_control import ALL_MODE_TOOLS 
 from agent.tools.aria_control import ALL_SYSTEM_TOOLS   # add this import
 
-TOOLS = [*ALL_OS_TOOLS, *ALL_MEDIA_TOOLS, *ALL_SPOTIFY_TOOLS, *ALL_MODE_TOOLS, *ALL_SYSTEM_TOOLS]
+TOOLS = [*ALL_OS_TOOLS, *ALL_MEDIA_TOOLS, *ALL_SPOTIFY_TOOLS, *ALL_MODE_TOOLS, *ALL_SYSTEM_TOOLS, *ALL_SCREENSHOT_TOOLS]
 
 SYSTEM_PROMPT = """You are Aria, a professional AI voice assistant running on the user's Windows PC.
 
